@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Mini App - SSO Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #fff;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      backdrop-filter: blur(10px);
+    }
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .status.pending { background: rgba(255,193,7,0.2); }
+    .status.success { background: rgba(40,167,69,0.2); }
+    .status.error { background: rgba(220,53,69,0.2); }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    .pending .dot { background: #ffc107; }
+    .success .dot { background: #28a745; animation: none; }
+    .error .dot { background: #dc3545; animation: none; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .user-info {
+      margin-top: 16px;
+    }
+    .user-info p {
+      font-size: 14px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .user-info p:last-child { border-bottom: none; }
+    .user-info strong { opacity: 0.7; }
+    .log {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      background: rgba(0,0,0,0.3);
+      padding: 12px;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      margin-bottom: 4px;
+      padding: 2px 0;
+    }
+    .log-time { opacity: 0.5; }
+    .log-msg { color: #9fefba; }
+    .log-error { color: #ff6b6b; }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #fff; color: #764ba2; }
+    .btn-secondary { background: rgba(255,255,255,0.2); color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Demo Mini App</h1>
+    
+    <div class="card">
+      <h2>SSO Status</h2>
+      <div id="status" class="status pending">
+        <div class="dot"></div>
+        <span>Waiting for SSO ticket...</span>
+      </div>
+      <div id="userInfo" class="user-info" style="display:none;"></div>
+    </div>
+    
+    <div class="card">
+      <h2>Message Log</h2>
+      <div id="log" class="log"></div>
+    </div>
+    
+    <div class="card">
+      <button id="btnReauth" class="btn btn-secondary" style="margin-bottom:8px;">Request Re-auth</button>
+      <button id="btnClose" class="btn btn-primary">Close App</button>
+    </div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const userInfoEl = document.getElementById('userInfo');
+    
+    let sessionNonce = null;
+    let appId = null;
+    const parentOrigin = new URL(document.referrer || window.location.origin).origin;
+    
+    function log(msg, isError = false) {
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="${isError ? 'log-error' : 'log-msg'}">${msg}</span>`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    
+    function setStatus(state, text) {
+      statusEl.className = 'status ' + state;
+      statusEl.innerHTML = `<div class="dot"></div><span>${text}</span>`;
+    }
+    
+    function showUser(user) {
+      userInfoEl.style.display = 'block';
+      userInfoEl.innerHTML = `
+        <p><strong>User ID:</strong> ${user.sub || user.id}</p>
+        <p><strong>Email:</strong> ${user.email || 'N/A'}</p>
+        <p><strong>Username:</strong> ${user.username || 'N/A'}</p>
+        <p><strong>Display Name:</strong> ${user.displayName || 'N/A'}</p>
+        <p><strong>Scopes:</strong> ${(user.scopes || []).join(', ') || 'None'}</p>
+      `;
+    }
+    
+    async function exchangeTicket(ticket) {
+      log('Exchanging ticket for user profile...');
+      try {
+        const res = await fetch('/api/sso/introspect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticket, appId })
+        });
+        
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Introspect failed');
+        }
+        
+        const data = await res.json();
+        log('SSO successful! User authenticated.');
+        setStatus('success', 'Authenticated');
+        showUser(data);
+      } catch (e) {
+        log('Exchange failed: ' + e.message, true);
+        setStatus('error', 'Authentication failed');
+      }
+    }
+    
+    window.addEventListener('message', (event) => {
+      if (event.origin !== parentOrigin) {
+        log('Rejected message from: ' + event.origin, true);
+        return;
+      }
+      
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      
+      log('Received: ' + msg.type);
+      
+      if (msg.type === 'SSO_TICKET' && msg.payload?.ticket) {
+        sessionNonce = msg.sessionNonce;
+        appId = msg.payload.appId || urlParams.get('appId');
+        exchangeTicket(msg.payload.ticket);
+      }
+    });
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const nonce = urlParams.get('nonce');
+    
+    if (window.parent !== window) {
+      log('Running as iframe embed');
+      log('Parent origin: ' + parentOrigin);
+      
+      setTimeout(() => {
+        log('Sending EMBED_READY...');
+        window.parent.postMessage({
+          type: 'EMBED_READY',
+          sessionNonce: nonce || 'unknown'
+        }, parentOrigin);
+      }, 500);
+    } else {
+      log('Running standalone (not in iframe)', true);
+      setStatus('error', 'Must run inside NoteFlow iframe');
+    }
+    
+    document.getElementById('btnReauth').addEventListener('click', () => {
+      if (sessionNonce) {
+        log('Requesting re-authentication...');
+        window.parent.postMessage({
+          type: 'REQUEST_REAUTH',
+          sessionNonce: sessionNonce
+        }, parentOrigin);
+      }
+    });
+    
+    document.getElementById('btnClose').addEventListener('click', () => {
+      if (sessionNonce) {
+        log('Requesting close...');
+        window.parent.postMessage({
+          type: 'CLOSE',
+          sessionNonce: sessionNonce
+        }, parentOrigin);
+      } else {
+        window.close();
+      }
+    });
+  </script>
+</body>
+</html>

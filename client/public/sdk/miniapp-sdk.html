@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NoteFlow Mini App SDK - Example</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #fff;
+    }
+    .container { max-width: 700px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 8px; text-align: center; }
+    .subtitle { text-align: center; opacity: 0.7; margin-bottom: 24px; font-size: 14px; }
+    .card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      backdrop-filter: blur(10px);
+    }
+    .card h2 { font-size: 16px; margin-bottom: 12px; color: #7dd3fc; }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .status-bar.waiting { background: rgba(251,191,36,0.2); }
+    .status-bar.success { background: rgba(34,197,94,0.2); }
+    .status-bar.error { background: rgba(239,68,68,0.2); }
+    .status-bar.info { background: rgba(59,130,246,0.2); }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .waiting .dot { background: #fbbf24; animation: pulse 1.5s infinite; }
+    .success .dot { background: #22c55e; }
+    .error .dot { background: #ef4444; }
+    .info .dot { background: #3b82f6; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .user-profile {
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .user-profile p {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      font-size: 14px;
+    }
+    .user-profile p:last-child { border-bottom: none; }
+    .user-profile strong { color: #7dd3fc; }
+    .log-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 180px;
+      overflow-y: auto;
+      font-family: 'Monaco','Menlo',monospace;
+      font-size: 11px;
+    }
+    .log-entry { padding: 3px 0; }
+    .log-time { color: #64748b; }
+    .log-msg { color: #86efac; }
+    .log-warn { color: #fcd34d; }
+    .log-error { color: #fca5a5; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      flex: 1;
+      min-width: 120px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #fff; color: #1e3a5f; }
+    .btn-secondary { background: rgba(255,255,255,0.2); color: #fff; }
+    code {
+      background: rgba(0,0,0,0.3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .instructions { font-size: 13px; line-height: 1.6; opacity: 0.9; }
+    .instructions ol { padding-left: 20px; }
+    .instructions li { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>NoteFlow Mini App</h1>
+    <p class="subtitle">SDK Example - External Domain Integration</p>
+    
+    <div class="card">
+      <h2>SSO Status</h2>
+      <div id="statusBar" class="status-bar info">
+        <div class="dot"></div>
+        <span id="statusText">Initializing...</span>
+      </div>
+      <div id="userProfile" class="user-profile" style="display:none;"></div>
+    </div>
+    
+    <div class="card">
+      <h2>Event Log</h2>
+      <div id="logContainer" class="log-container"></div>
+    </div>
+    
+    <div class="card">
+      <h2>Actions</h2>
+      <div class="actions">
+        <button id="btnReauth" class="btn btn-secondary">Re-authenticate</button>
+        <button id="btnOpenLink" class="btn btn-secondary">Open Link</button>
+        <button id="btnClose" class="btn btn-primary">Close App</button>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>Integration Instructions</h2>
+      <div class="instructions">
+        <ol>
+          <li>Host this page on your domain (e.g., <code>https://your-app.com/miniapp.html</code>)</li>
+          <li>Register your app in NoteFlow with:
+            <ul>
+              <li><code>origin</code>: your domain origin</li>
+              <li><code>allowedPostMessageOrigins</code>: [NoteFlow origin, your origin]</li>
+              <li><code>launchMode</code>: "iframe"</li>
+              <li><code>ssoMode</code>: "postmessage"</li>
+            </ul>
+          </li>
+          <li>When opened in NoteFlow iframe, this page will automatically receive SSO ticket</li>
+          <li>Exchange ticket via <code>/api/sso/introspect</code> to get user profile</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const NOTEFLOW_API_BASE = '';
+    
+    const logEl = document.getElementById('logContainer');
+    const statusBar = document.getElementById('statusBar');
+    const statusText = document.getElementById('statusText');
+    const userProfileEl = document.getElementById('userProfile');
+    
+    let sessionNonce = null;
+    let appId = null;
+    let parentOrigin = null;
+    
+    function log(msg, level = 'msg') {
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${level}">${msg}</span>`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[MiniApp ${level}]`, msg);
+    }
+    
+    function setStatus(state, text) {
+      statusBar.className = 'status-bar ' + state;
+      statusText.textContent = text;
+    }
+    
+    function showUserProfile(user) {
+      userProfileEl.style.display = 'block';
+      userProfileEl.innerHTML = `
+        <p><strong>User ID:</strong> ${user.sub || user.id || 'N/A'}</p>
+        <p><strong>Email:</strong> ${user.email || 'Not provided'}</p>
+        <p><strong>Username:</strong> ${user.username || 'N/A'}</p>
+        <p><strong>Display Name:</strong> ${user.displayName || 'N/A'}</p>
+        <p><strong>Scopes:</strong> ${(user.scopes || []).join(', ') || 'None'}</p>
+        <p><strong>Issued At:</strong> ${user.iat ? new Date(user.iat * 1000).toLocaleString() : 'N/A'}</p>
+        <p><strong>Expires:</strong> ${user.exp ? new Date(user.exp * 1000).toLocaleString() : 'N/A'}</p>
+      `;
+    }
+    
+    async function exchangeTicketForProfile(ticket) {
+      log('Exchanging ticket for user profile...');
+      
+      try {
+        const apiBase = parentOrigin || window.location.origin;
+        const response = await fetch(`${apiBase}/api/sso/introspect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticket, appId })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || errorData.reason || `HTTP ${response.status}`);
+        }
+        
+        const userData = await response.json();
+        
+        if (userData.valid === false) {
+          throw new Error(userData.reason || 'Invalid ticket');
+        }
+        
+        log('Authentication successful!');
+        setStatus('success', 'Authenticated');
+        showUserProfile(userData);
+        
+        return userData;
+      } catch (error) {
+        log(`Exchange failed: ${error.message}`, 'error');
+        setStatus('error', 'Authentication failed');
+        throw error;
+      }
+    }
+    
+    function sendToParent(type, payload = {}) {
+      if (!parentOrigin || window.parent === window) {
+        log('Cannot send message - not in iframe or no parent origin', 'warn');
+        return;
+      }
+      
+      const message = {
+        type,
+        sessionNonce,
+        payload
+      };
+      
+      log(`Sending: ${type}`);
+      window.parent.postMessage(message, parentOrigin);
+    }
+    
+    function handleMessage(event) {
+      if (window.parent === window) return;
+      
+      if (parentOrigin && event.origin !== parentOrigin) {
+        log(`Rejected message from unknown origin: ${event.origin}`, 'warn');
+        return;
+      }
+      
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object' || !msg.type) return;
+      
+      log(`Received: ${msg.type}`);
+      
+      switch (msg.type) {
+        case 'SSO_TICKET':
+          if (msg.payload?.ticket) {
+            sessionNonce = msg.sessionNonce;
+            appId = msg.payload.appId;
+            if (!parentOrigin) parentOrigin = event.origin;
+            exchangeTicketForProfile(msg.payload.ticket);
+          } else {
+            log('SSO_TICKET received but no ticket in payload', 'error');
+            setStatus('error', 'No ticket received');
+          }
+          break;
+          
+        case 'SESSION_ERROR':
+          log(`Session error: ${msg.payload?.error || 'Unknown'}`, 'error');
+          setStatus('error', msg.payload?.error || 'Session error');
+          break;
+          
+        default:
+          log(`Unknown message type: ${msg.type}`, 'warn');
+      }
+    }
+    
+    function initialize() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const nonceFromUrl = urlParams.get('nonce');
+      const appIdFromUrl = urlParams.get('appId');
+      
+      if (nonceFromUrl) sessionNonce = nonceFromUrl;
+      if (appIdFromUrl) appId = appIdFromUrl;
+      
+      if (window.parent !== window) {
+        log('Running inside iframe');
+        
+        try {
+          parentOrigin = document.referrer ? new URL(document.referrer).origin : null;
+          if (parentOrigin) {
+            log(`Parent origin: ${parentOrigin}`);
+          }
+        } catch (e) {
+          log('Could not determine parent origin from referrer', 'warn');
+        }
+        
+        window.addEventListener('message', handleMessage);
+        
+        setStatus('waiting', 'Waiting for SSO ticket...');
+        
+        setTimeout(() => {
+          log('Sending EMBED_READY to parent...');
+          
+          const readyMessage = {
+            type: 'EMBED_READY',
+            sessionNonce: sessionNonce || 'pending'
+          };
+          
+          if (parentOrigin) {
+            window.parent.postMessage(readyMessage, parentOrigin);
+          } else {
+            window.parent.postMessage(readyMessage, '*');
+            log('Warning: posting to * because parent origin unknown', 'warn');
+          }
+        }, 300);
+        
+      } else {
+        log('Running standalone (not in iframe)', 'warn');
+        setStatus('info', 'Standalone mode - open inside NoteFlow to test SSO');
+      }
+    }
+    
+    document.getElementById('btnReauth').addEventListener('click', () => {
+      if (sessionNonce && parentOrigin) {
+        log('Requesting re-authentication...');
+        sendToParent('REQUEST_REAUTH');
+      } else {
+        log('Cannot re-auth: no active session', 'warn');
+      }
+    });
+    
+    document.getElementById('btnOpenLink').addEventListener('click', () => {
+      if (sessionNonce && parentOrigin) {
+        sendToParent('OPEN_LINK', { url: 'https://example.com' });
+      } else {
+        window.open('https://example.com', '_blank');
+      }
+    });
+    
+    document.getElementById('btnClose').addEventListener('click', () => {
+      if (sessionNonce && parentOrigin) {
+        log('Requesting close...');
+        sendToParent('CLOSE');
+      } else {
+        log('Cannot close: no active session', 'warn');
+      }
+    });
+    
+    initialize();
+  </script>
+</body>
+</html>
